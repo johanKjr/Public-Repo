@@ -12,8 +12,8 @@
   BRUG
   Åbn filen lokalt i Safari på iPad (ingen internet nødvendigt).
   Gem til hjemskærm for fuld skærm uden browserbjælke.
-  Brug Guided Access (Indstillinger → Tilgængelighed) som kiosk-tilstand.
-  Siden opdaterer automatisk hvert 10. minut.
+  Brug Guided Access / Styret adgang (Indstillinger → Tilgængelighed)
+  som kiosk-tilstand. Siden opdaterer automatisk hvert 10. minut.
 
   ─── DAG BAR ───────────────────────────────────────────────────
   Viser timerne fra kl. 06 til 20 (DAY_START / DAY_END).
@@ -45,6 +45,14 @@
   Mørk baggrund (#0a0a0f) for lavt strømforbrug og god læsbarhed
   ved lav skærmlysstyrke. Mættede farver sikrer synlighed på
   afstand. Hvid markørlinje viser præcis aktuel position.
+  Segmenter alternerer mellem to vertikale positioner (op/ned)
+  for nem skelnen. Border på hvert segment viser altid fill-farven
+  uanset om segmentet er tændt eller slukket.
+  Marker lines are positioned using pixel-accurate calculations that
+  account for segment borders and gaps, ensuring the marker aligns
+  precisely with the fill boundary in all three bars.
+  Ghost segments on the day bar (left/right edges) have open borders
+  on the screen edge to suggest the bar continues off-screen.
   Fonte: Space Mono (labels/titler), DM Sans (generel tekst).
 
   ─── KONFIGURATION (find disse konstanter øverst i <script>) ───
@@ -53,6 +61,8 @@
   WEEK_DAY_ICONS        — ikoner over ugedage
   SPECIAL_DATES         — særlige datoer på årsbar
   GHOST_FRAC            — bredde af ghost-segmenter (kl. 5 og 20)
+  SEG_H                 — segment højde i px
+  OFFSET                — vertikal offset for alternerende segmenter
 
 ═══════════════════════════════════════════════════════════════════
 -->
@@ -61,6 +71,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Tidsoversigt</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500&display=swap');
@@ -80,9 +92,11 @@
 
   .container {
     width: 100vw;
+    height: 100vh;
     display: flex;
     flex-direction: column;
-    gap: 5vh;
+    justify-content: space-evenly;
+    padding: 2vh 0;
   }
 
   .bar-block { display: flex; flex-direction: column; }
@@ -90,17 +104,17 @@
 
   .section-title {
     font-family: 'Space Mono', monospace;
-    font-size: 10px;
+    font-size: 13px;
     letter-spacing: 0.15em;
     text-transform: uppercase;
-    color: #55556a;
-    margin-bottom: 8px;
+    color: #8888aa;
+    margin-bottom: 10px;
   }
 
   .icons-row {
     position: relative;
-    height: 34px;
-    margin-bottom: 4px;
+    height: 48px;
+    margin-bottom: 6px;
   }
 
   .icon-wrap {
@@ -109,33 +123,39 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 1px;
+    gap: 2px;
   }
-  .icon-emoji { font-size: 18px; line-height: 1; filter: drop-shadow(0 0 4px rgba(255,255,255,0.2)); }
-  .icon-arrow { width: 2px; height: 8px; background: rgba(255,255,255,0.3); border-radius: 1px; }
+  .icon-emoji {
+    font-size: 32px;
+    line-height: 1;
+    filter: drop-shadow(0 0 5px rgba(255,255,255,0.2));
+  }
+  .icon-arrow {
+    width: 2px;
+    height: 10px;
+    background: rgba(255,255,255,0.3);
+    border-radius: 1px;
+  }
 
+  /* Bar track is taller to accommodate vertical offset */
   .bar-track {
     position: relative;
-    height: 56px;
     display: flex;
+    align-items: flex-start; /* segments position themselves */
     overflow: visible;
   }
-  .bar-track.rounded { border-radius: 6px; overflow: hidden; }
-  .bar-track.rounded .seg-outer:first-child { border-radius: 6px 0 0 6px; overflow: hidden; }
-  .bar-track.rounded .seg-outer:last-child  { border-radius: 0 6px 6px 0; overflow: hidden; }
 
   .seg-outer {
-    height: 100%;
-    display: flex;
+    position: relative;
     flex-shrink: 0;
+    display: flex;
     overflow: hidden;
+    border-radius: 4px;
   }
-  .seg-outer + .seg-outer { border-left: 1px solid rgba(0,0,0,0.4); }
   .seg-filled, .seg-empty { height: 100%; }
 
   .marker {
     position: absolute;
-    top: -7px; bottom: -7px;
     width: 3px;
     background: white;
     border-radius: 2px;
@@ -147,15 +167,15 @@
 
   .labels-row {
     position: relative;
+    margin-top: 8px;
     height: 20px;
-    margin-top: 6px;
   }
   .label-pin {
     position: absolute;
     transform: translateX(-50%);
     font-family: 'Space Mono', monospace;
-    font-size: 10px;
-    color: #55556a;
+    font-size: 14px;
+    color: #aaaacc;
     white-space: nowrap;
   }
 </style>
@@ -163,37 +183,36 @@
 <body>
 <div class="container">
 
-  <div class="bar-block">
+  <div class="bar-block" id="day-block">
     <div class="section-title" style="padding-left:2vw">Dag</div>
     <div class="icons-row" id="day-icons" style="width:100%"></div>
-    <div class="bar-track" id="day-bar"></div>
+    <div class="bar-track" id="day-bar" style="width:100%"></div>
     <div class="labels-row" id="day-labels" style="width:100%"></div>
   </div>
 
   <div class="bar-block padded">
     <div class="section-title">Uge</div>
     <div class="icons-row" id="week-icons"></div>
-    <div class="bar-track rounded" id="week-bar"></div>
+    <div class="bar-track" id="week-bar"></div>
     <div class="labels-row" id="week-labels"></div>
   </div>
 
   <div class="bar-block padded">
     <div class="section-title">År</div>
     <div class="icons-row" id="year-icons"></div>
-    <div class="bar-track rounded" id="year-bar"></div>
+    <div class="bar-track" id="year-bar"></div>
     <div class="labels-row" id="year-labels"></div>
   </div>
 
 </div>
 <script>
 // ══════════════════════════════════════════════════════
-// CONFIGURATION — edit these to customise
+// CONFIGURATION
 // ══════════════════════════════════════════════════════
 
-const DAY_START = 6;   // First full hour shown
-const DAY_END   = 20;  // Last full hour shown (exclusive)
+const DAY_START = 6;
+const DAY_END   = 20;
 
-// Events shown above the day bar  { hour: decimal, icon: emoji }
 const DAY_EVENTS = [
   { hour: 7,    icon: '☀️' },
   { hour: 8,    icon: '📚' },
@@ -202,13 +221,11 @@ const DAY_EVENTS = [
   { hour: 19,   icon: '🛏️' },
 ];
 
-// Icons above specific weekdays (0=Mon … 6=Sun)
 const WEEK_DAY_ICONS = [
   { dayIndex: 2, icon: '⚽' },
   { dayIndex: 2, icon: '🏒' },
 ];
 
-// Special dates on the year bar { month: 0-indexed, day, icon }
 const SPECIAL_DATES = [
   { month: 0,  day: 31, icon: '🇩🇰' },
   { month: 4,  day: 14, icon: '🇩🇰' },
@@ -217,8 +234,14 @@ const SPECIAL_DATES = [
   { month: 11, day: 24, icon: '🎅' },
 ];
 
-// Ghost segment width as fraction of total day bar
 const GHOST_FRAC = 0.04;
+
+// Segment geometry
+const SEG_H  = 70;   // height of each segment in px
+const OFFSET = 22;   // vertical offset for alternating segments in px
+const TRACK_H = SEG_H + OFFSET; // total bar track height
+const GAP    = 3;    // gap between segments in px
+const BORDER = 3;    // border width in px
 
 // ══════════════════════════════════════════════════════
 // COLOURS
@@ -269,35 +292,73 @@ function makeLabelPin(container, leftPct, text) {
   container.appendChild(pin);
 }
 
-function makeSegment(fillColor, emptyColor, fillFrac, widthPct) {
+// index: 0-based segment index (for alternating offset)
+// fillColor: the "lit" color (also used for border always)
+// emptyColor: background when not lit
+// fillFrac: 0=all empty, 1=all filled, 0<x<1=partial
+// widthPct: percentage width of this segment
+// openLeft: no left border (ghost segment extending off left edge)
+// openRight: no right border (ghost segment extending off right edge)
+function makeSegment(index, fillColor, emptyColor, fillFrac, widthPct, openLeft, openRight) {
   const outer = document.createElement('div');
   outer.className = 'seg-outer';
-  outer.style.width = widthPct + '%';
+  outer.style.width = `calc(${widthPct}% - ${GAP}px)`;
+  outer.style.marginRight = GAP + 'px';
+  outer.style.height = SEG_H + 'px';
+  const bL = openLeft  ? '0' : `${BORDER}px`;
+  const bR = openRight ? '0' : `${BORDER}px`;
+  outer.style.borderTop    = `${BORDER}px solid ${fillColor}`;
+  outer.style.borderBottom = `${BORDER}px solid ${fillColor}`;
+  outer.style.borderLeft   = `${bL} solid ${fillColor}`;
+  outer.style.borderRight  = `${bR} solid ${fillColor}`;
+  // Alternating vertical offset: even=top, odd=offset down
+  outer.style.marginTop = (index % 2 === 0 ? 0 : OFFSET) + 'px';
+
   if (fillFrac >= 1) {
-    const f = document.createElement('div'); f.className='seg-filled'; f.style.cssText=`background:${fillColor};width:100%`; outer.appendChild(f);
+    const f = document.createElement('div');
+    f.className = 'seg-filled';
+    f.style.cssText = `background:${fillColor};width:100%`;
+    outer.appendChild(f);
   } else if (fillFrac <= 0) {
-    const e = document.createElement('div'); e.className='seg-empty'; e.style.cssText=`background:${emptyColor};width:100%`; outer.appendChild(e);
+    const e = document.createElement('div');
+    e.className = 'seg-empty';
+    e.style.cssText = `background:${emptyColor};width:100%`;
+    outer.appendChild(e);
   } else {
-    const f = document.createElement('div'); f.className='seg-filled'; f.style.cssText=`background:${fillColor};width:${fillFrac*100}%`; outer.appendChild(f);
-    const e = document.createElement('div'); e.className='seg-empty'; e.style.cssText=`background:${emptyColor};width:${(1-fillFrac)*100}%`; outer.appendChild(e);
+    const f = document.createElement('div');
+    f.className = 'seg-filled';
+    f.style.cssText = `background:${fillColor};width:${fillFrac*100}%`;
+    outer.appendChild(f);
+    const e = document.createElement('div');
+    e.className = 'seg-empty';
+    e.style.cssText = `background:${emptyColor};width:${(1-fillFrac)*100}%`;
+    outer.appendChild(e);
   }
   return outer;
 }
 
 function addMarker(bar, leftPct) {
-  const m = document.createElement('div'); m.className = 'marker';
+  const m = document.createElement('div');
+  m.className = 'marker';
   m.style.left = leftPct + '%';
+  m.style.top = '0px';
+  m.style.height = TRACK_H + 'px';
   bar.appendChild(m);
 }
 
+function setTrackHeight(bar) {
+  bar.style.height = TRACK_H + 'px';
+}
+
 // ══════════════════════════════════════════════════════
-// RENDER FUNCTIONS
+// RENDER — DAG
 // ══════════════════════════════════════════════════════
 function renderDay(now) {
   const bar    = document.getElementById('day-bar');
   const labels = document.getElementById('day-labels');
   const icons  = document.getElementById('day-icons');
   bar.innerHTML = ''; labels.innerHTML = ''; icons.innerHTML = '';
+  setTrackHeight(bar);
 
   const totalHours = DAY_END - DAY_START;
   const MAIN_FRAC  = 1 - 2 * GHOST_FRAC;
@@ -306,25 +367,23 @@ function renderDay(now) {
   const currentHour = now.getHours();
   const currentMin  = now.getMinutes();
 
-  // Left ghost: tail of hour (DAY_START-1) — always lit
-  bar.appendChild(makeSegment(C.dayFill, C.dayEmpty, 1, GHOST_FRAC * 100));
+  // Left ghost — always lit, open left edge (extends off screen)
+  const gL = makeSegment(0, C.dayFill, C.dayEmpty, 1, GHOST_FRAC * 100, true, false);
+  gL.style.width = `calc(${GHOST_FRAC * 100}% - ${GAP}px)`;
+  bar.appendChild(gL);
 
-  // Real hours
   for (let h = 0; h < totalHours; h++) {
     const hour = DAY_START + h;
-    let fillFrac;
-    if (hour < currentHour) {
-      fillFrac = 1;
-    } else if (hour === currentHour) {
-      fillFrac = currentMin / 60;
-    } else {
-      fillFrac = 0;
-    }
-    bar.appendChild(makeSegment(C.dayFill, C.dayEmpty, fillFrac, segW));
+    const fillFrac = hour < currentHour ? 1 : hour === currentHour ? currentMin / 60 : 0;
+    // h+1 so first real hour (6) is index 1 → offset down, alternates from there
+    const seg = makeSegment(h + 1, C.dayFill, C.dayEmpty, fillFrac, segW);
+    bar.appendChild(seg);
   }
 
-  // Right ghost: head of hour DAY_END — always dark
-  bar.appendChild(makeSegment(C.dayFill, C.dayEmpty, 0, GHOST_FRAC * 100));
+  // Right ghost — always dark, open right edge (extends off screen)
+  const gR = makeSegment(totalHours + 1, C.dayFill, C.dayEmpty, 0, GHOST_FRAC * 100, false, true);
+  gR.style.width = `calc(${GHOST_FRAC * 100}% - ${GAP}px)`;
+  bar.appendChild(gR);
 
   // Labels
   for (let h = 0; h <= totalHours; h++) {
@@ -337,26 +396,36 @@ function renderDay(now) {
     makeIconPin(icons, pct, e.icon);
   });
 
-  // Marker — clamp within day window
-  const clampedHour = Math.max(DAY_START, Math.min(currentHour, DAY_END));
-  const clampedMin  = clampedHour === currentHour ? currentMin : (currentHour < DAY_START ? 0 : 60);
-  const markerPct   = GHOST_FRAC*100 + (clampedHour - DAY_START + clampedMin/60) / totalHours * MAIN_FRAC * 100;
-  addMarker(bar, Math.max(GHOST_FRAC*100, Math.min(100 - GHOST_FRAC*100, markerPct)));
-
-  bar.style.overflow = 'visible';
+  // Marker — pixel-accurate, accounting for ghost segment, gaps and borders
+  const dayBarEl = document.getElementById('day-bar');
+  const barW2 = dayBarEl.offsetWidth || 800;
+  // Ghost left segment width in px (including its gap)
+  const ghostSegPx = GHOST_FRAC * barW2;
+  // Each real segment's total width in px (including gap)
+  const realSegTotalPx = MAIN_FRAC * barW2 / totalHours;
+  // Inner content width of a real segment (excluding border and gap)
+  const innerHourW = realSegTotalPx - GAP - 2 * BORDER;
+  const clampedHour2 = Math.max(DAY_START, Math.min(currentHour, DAY_END - 1));
+  const clampedMin2  = clampedHour2 === currentHour ? currentMin : (currentHour < DAY_START ? 0 : 60);
+  const hIdx = clampedHour2 - DAY_START;
+  // Position: ghost width + hIdx full segments + left border of current segment + fill fraction
+  const fillPx2 = ghostSegPx + hIdx * realSegTotalPx + BORDER + (clampedMin2 / 60) * innerHourW;
+  addMarker(dayBarEl, fillPx2 / barW2 * 100);
 }
 
+// ══════════════════════════════════════════════════════
+// RENDER — UGE
+// ══════════════════════════════════════════════════════
 function renderWeek(now) {
   const bar    = document.getElementById('week-bar');
   const labels = document.getElementById('week-labels');
   const icons  = document.getElementById('week-icons');
   bar.innerHTML = ''; labels.innerHTML = ''; icons.innerHTML = '';
+  setTrackHeight(bar);
 
-  // JS getDay(): 0=Sun,1=Mon...6=Sat → convert to Mon-first (0=Mon...6=Sun)
-  const jsDay     = now.getDay();
-  const todayIdx  = (jsDay + 6) % 7; // 0=Mon
-  const dayFrac   = (now.getHours() * 60 + now.getMinutes()) / (24 * 60);
-
+  const jsDay    = now.getDay();
+  const todayIdx = (jsDay + 6) % 7;
+  const dayFrac  = (now.getHours() * 60 + now.getMinutes()) / (24 * 60);
   const DAY_NAMES = ['Man','Tir','Ons','Tor','Fre','Lør','Søn'];
 
   DAY_NAMES.forEach((name, i) => {
@@ -364,37 +433,51 @@ function renderWeek(now) {
     const fc = weekend ? C.weFill  : C.wdFill;
     const ec = weekend ? C.weEmpty : C.wdEmpty;
     const fillFrac = i < todayIdx ? 1 : i === todayIdx ? dayFrac : 0;
-    bar.appendChild(makeSegment(fc, ec, fillFrac, 100/7));
+    bar.appendChild(makeSegment(i, fc, ec, fillFrac, 100/7));
     makeLabelPin(labels, (i+0.5)/7*100, name);
   });
 
-  // Week day icons — group by day
   const grouped = {};
-  WEEK_DAY_ICONS.forEach(wi => { if(!grouped[wi.dayIndex]) grouped[wi.dayIndex]=[]; grouped[wi.dayIndex].push(wi.icon); });
+  WEEK_DAY_ICONS.forEach(wi => {
+    if (!grouped[wi.dayIndex]) grouped[wi.dayIndex] = [];
+    grouped[wi.dayIndex].push(wi.icon);
+  });
   Object.entries(grouped).forEach(([di, ics]) => {
     const basePct = (parseInt(di)+0.5)/7*100;
     ics.forEach((icon, ii) => {
-      const offset = ics.length > 1 ? (ii-(ics.length-1)/2)*1.8 : 0;
+      const offset = ics.length > 1 ? (ii-(ics.length-1)/2)*2.5 : 0;
       makeIconPin(icons, basePct+offset, icon);
     });
   });
 
-  addMarker(bar, (todayIdx + dayFrac) / 7 * 100);
+  // Marker: account for gaps and borders so it aligns with fill boundary
+  // Each segment's visual fill area is slightly narrower than its % width due to gap+border
+  // We calculate the pixel-accurate position using the bar's rendered width
+  const weekBarEl = document.getElementById('week-bar');
+  const barW = weekBarEl.offsetWidth || 800; // fallback
+  const totalGapBorder = 7 * (GAP + 2 * BORDER); // total px consumed by gaps+borders across 7 segs
+  const innerSegW = (barW - totalGapBorder) / 7; // inner content width per segment
+  const segStartPx = todayIdx * (innerSegW + GAP + 2 * BORDER) + BORDER; // left edge of filled area
+  const fillPx = segStartPx + dayFrac * innerSegW;
+  addMarker(bar, fillPx / barW * 100);
 }
 
+// ══════════════════════════════════════════════════════
+// RENDER — ÅR
+// ══════════════════════════════════════════════════════
 function renderYear(now) {
   const bar    = document.getElementById('year-bar');
   const labels = document.getElementById('year-labels');
   const icons  = document.getElementById('year-icons');
   bar.innerHTML = ''; labels.innerHTML = ''; icons.innerHTML = '';
+  setTrackHeight(bar);
 
   const year     = now.getFullYear();
   const isLeap   = (year%4===0 && year%100!==0) || year%400===0;
-  const mDays    = [...MONTHS]; mDays[1] = {...mDays[1], days: isLeap ? 29 : 28};
+  const mDays    = MONTHS.map((m,i) => i===1 ? {...m, days: isLeap?29:28} : {...m});
   const totalDays = mDays.reduce((s,m)=>s+m.days,0);
-
-  const month    = now.getMonth(); // 0-indexed
-  const date     = now.getDate();  // 1-indexed
+  const month    = now.getMonth();
+  const date     = now.getDate();
 
   let cumDays = 0;
   mDays.forEach((m, i) => {
@@ -402,7 +485,7 @@ function renderYear(now) {
     const midPct  = (cumDays + m.days/2) / totalDays * 100;
     const fillFrac = i < month ? 1 : i === month ? (date-1) / m.days : 0;
 
-    bar.appendChild(makeSegment(m.fill, m.empty, fillFrac, wPct));
+    bar.appendChild(makeSegment(i, m.fill, m.empty, fillFrac, wPct));
     makeLabelPin(labels, midPct, m.name);
 
     SPECIAL_DATES.filter(sd => sd.month === i).forEach(sd => {
@@ -412,8 +495,18 @@ function renderYear(now) {
     cumDays += m.days;
   });
 
-  const yearDaysPassed = mDays.slice(0, month).reduce((s,m)=>s+m.days,0) + (date-1);
-  addMarker(bar, yearDaysPassed / totalDays * 100);
+  // Marker — pixel-accurate
+  const yearBarEl = document.getElementById('year-bar');
+  const barW3 = yearBarEl.offsetWidth || 800;
+  const totalGapBorder3 = 12 * (GAP + 2 * BORDER);
+  let cumInnerPx = 0;
+  for (let mi = 0; mi < month; mi++) {
+    const innerW = (mDays[mi].days / totalDays) * barW3 - GAP - 2*BORDER;
+    cumInnerPx += innerW + GAP + 2*BORDER;
+  }
+  const curInnerW = (mDays[month].days / totalDays) * barW3 - GAP - 2*BORDER;
+  const fillPx3 = cumInnerPx + BORDER + (date-1) / mDays[month].days * curInnerW;
+  addMarker(yearBarEl, fillPx3 / barW3 * 100);
 }
 
 // ══════════════════════════════════════════════════════
@@ -426,8 +519,9 @@ function update() {
   renderYear(now);
 }
 
-update();
-setInterval(update, 10 * 60 * 1000); // refresh every 10 minutes
+// Use rAF to ensure layout is computed before marker placement
+requestAnimationFrame(() => update());
+setInterval(() => requestAnimationFrame(() => update()), 10 * 60 * 1000);
 </script>
 </body>
 </html>
